@@ -19,14 +19,22 @@
 <div id="toast" class="toast"></div>
 <div id="ui" class="ui"></div>
 <div id="touch" class="touch" hidden>
-  <div class="tc-steer" data-tc-zone>
-    <button id="tc-left" data-tc aria-label="Steer left"><svg viewBox="0 0 48 48"><path d="M30 8 14 24l16 16" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-    <button id="tc-right" data-tc aria-label="Steer right"><svg viewBox="0 0 48 48"><path d="M18 8l16 16-16 16" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+  <div class="tc-left">
+    <div id="tc-wheel" class="wheel" aria-label="Steering wheel">
+      <svg viewBox="0 0 200 200"><defs><linearGradient id="wg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a4668"/><stop offset="1" stop-color="#171d33"/></linearGradient></defs>
+        <circle cx="100" cy="100" r="88" fill="none" stroke="url(#wg)" stroke-width="20"/><circle cx="100" cy="100" r="88" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="2" stroke-dasharray="3 7"/>
+        <path d="M100 12v26" stroke="#ff4fa8" stroke-width="7" stroke-linecap="round"/>
+        <path d="M18 108c26 4 46 10 82 10s56-6 82-10" fill="none" stroke="url(#wg)" stroke-width="16" stroke-linecap="round"/><path d="M100 118v70" stroke="url(#wg)" stroke-width="16" stroke-linecap="round"/>
+        <circle cx="100" cy="108" r="22" fill="#10152a" stroke="#34e0ff" stroke-width="3"/><path d="M90 112c4-2 7-6 10-11 1-2 3-2 5-2l6 1c-3 1-5 2-7 5-3 5-7 7-14 7z" fill="#34e0ff"/></svg>
+    </div>
+    <div class="tc-steer">
+      <button id="tc-left" data-tc aria-label="Steer left"><svg viewBox="0 0 48 48"><path d="M30 8 14 24l16 16" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button id="tc-right" data-tc aria-label="Steer right"><svg viewBox="0 0 48 48"><path d="M18 8l16 16-16 16" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    </div>
   </div>
-  <div class="tc-act">
-    <button id="tc-item" data-tc>ITEM</button>
-    <button id="tc-brake" data-tc>BRAKE</button>
-    <button id="tc-drift" data-tc class="big">DRIFT</button>
+  <div class="tc-right">
+    <div class="tc-btns"><button id="tc-item" data-tc>ITEM</button><button id="tc-drift" data-tc class="big">DRIFT</button></div>
+    <div class="tc-pedals"><button id="tc-brake" data-tc class="pedal brake"><i></i><span>BRAKE</span></button><button id="tc-gas" data-tc class="pedal gas"><i></i><span>GAS</span></button></div>
   </div>
   <button id="tc-pause" class="tc-pause" aria-label="Pause"><svg viewBox="0 0 48 48"><path d="M15 8v32M33 8v32" stroke="currentColor" stroke-width="7" stroke-linecap="round"/></svg></button>
 </div>

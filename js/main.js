@@ -40,9 +40,10 @@ class App {
     document.addEventListener('visibilitychange', () => { if (document.hidden && this.raceCtl && !this.paused && this.game.mode === 'race') this.showPause(); });
     addEventListener('pointerdown', () => { this.audio.ensure(); }, { passive: true });
     addEventListener('keydown', (e) => this.menuKeys(e));
-    store.on((p) => this.applyAudio(p));
+    store.on((p) => { this.applyAudio(p); this.applyControls(p); });
     addEventListener('beforeunload', () => { store.flush?.(); });
   }
+  applyControls(p = store.profile) { const c = p.settings; this.input.configure({ scheme: c.controls, onscreen: c.onscreen, autoGas: c.autoGas }); }
   applyAudio(p = store.profile) { const s = p.settings; this.audio.setVolumes({ master: s.master, music: s.music, sfx: s.sfx }); }
 
   // ------------------------------------------------------------ small UI helpers
@@ -100,7 +101,7 @@ class App {
       this.raceCtl = { cfg, resolve }; this.finishedUi = false; this.paused = false;
       this.root.innerHTML = ''; this.setBack(null);
       this.hud.setTrack(cfg.trackId); this.hud.show(true);
-      const touch = this.input.device === 'touch'; document.body.classList.toggle('touchmode', touch); $('#touch').hidden = !touch;
+      this.applyControls(); this.input.refreshOnscreen(); const touch = this.input.onscreen; document.body.classList.toggle('touchmode', touch); $('#touch').hidden = !touch; $('#touch').dataset.scheme = this.input.scheme;
       const full = {
         ...cfg,
         onFrame: (snap) => this.hud.update(snap, cfg.hud || {}),
@@ -140,7 +141,7 @@ class App {
 
   // ------------------------------------------------------------ flows
   afterAuth() {
-    this.applyAudio();
+    this.applyAudio(); this.applyControls();
     if (!store.profile.onboarded) this.screenGarage({ first: true }); else this.screenMenu();
   }
   async runTutorialFlow() {
@@ -224,7 +225,7 @@ async function boot() {
   }
   window.slipstream = app;
   const kind = await store.restore().catch(() => null);
-  app.applyAudio();
+  app.applyAudio(); app.applyControls();
   if (kind) app.afterAuth(); else app.screenTitle();
   setTimeout(() => boot.classList.add('gone'), 450);
   setTimeout(() => boot.remove(), 1200);

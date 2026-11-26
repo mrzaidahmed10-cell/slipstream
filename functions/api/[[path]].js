@@ -49,7 +49,7 @@ function sanitizeProfile(p = {}) {
   if (p.stats && typeof p.stats === 'object') for (const k of ['wins', 'podiums', 'driftBoosts', 'hits', 'distance']) out.stats[k] = num(p.stats[k], 0, 1e9, 0);
   if (p.settings && typeof p.settings === 'object') {
     const s = p.settings;
-    out.settings = { quality: ['low', 'medium', 'high'].includes(s.quality) ? s.quality : 'medium', master: num(s.master, 0, 1, 0.8), music: num(s.music, 0, 1, 0.45), sfx: num(s.sfx, 0, 1, 0.9), shake: num(s.shake, 0, 1, 1), laps: [3, 5].includes(+s.laps) ? +s.laps : 3 };
+    out.settings = { quality: ['low', 'medium', 'high'].includes(s.quality) ? s.quality : 'medium', master: num(s.master, 0, 1, 0.8), music: num(s.music, 0, 1, 0.45), sfx: num(s.sfx, 0, 1, 0.9), shake: num(s.shake, 0, 1, 1), laps: [3, 5].includes(+s.laps) ? +s.laps : 3, controls: s.controls === 'wheel' ? 'wheel' : 'buttons', onscreen: ['auto', 'on', 'off'].includes(s.onscreen) ? s.onscreen : 'auto', autoGas: !!s.autoGas };
   }
   return out;
 }

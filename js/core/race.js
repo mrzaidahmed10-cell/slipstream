@@ -11,11 +11,12 @@ const DRIFT_TIERS = [
   { at: 2.2, time: 1.05, power: 0.38 },
   { at: 3.6, time: 1.6, power: 0.46 },
 ];
-const SURFACE_GRIP = { road: 11, kerb: 9, off: 6.5 };
+const SURF_MU = { road: 1, kerb: 0.86, off: 0.62 };
+const ZONE_MU = { ice: 0.2, wet: 0.7, sand: 0.62 };
 const ZONE = {
-  ice: { grip: 2.4, steer: 0.55, speed: 1 },
-  wet: { grip: 7, steer: 0.92, speed: 1 },
-  sand: { grip: 6, steer: 0.9, speed: 0.78 },
+  ice: { steer: 0.6, speed: 1 },
+  wet: { steer: 0.92, speed: 1 },
+  sand: { steer: 0.9, speed: 0.78 },
 };
 
 export const ITEM_INFO = {
@@ -47,7 +48,7 @@ export class Kart {
     const p = track.pointAt(-back / track.step, col ? 5.2 : -5.2);
     this.x = p.x; this.z = p.z; this.h = p.h;
     this.vx = 0; this.vz = 0; this.speed = 0; this.slip = 0;
-    this.steer = 0;
+    this.steer = 0; this.yaw = 0; this.alpha = 0;
     this.idx = track.locate(this.x, this.z, -1).idx;
     const loc = track.locate(this.x, this.z, this.idx);
     this.off = loc.off;
@@ -235,7 +236,7 @@ export class Race {
     }
     if (k.driftState === 2) {
       const rel = k.steer * k.driftDir;
-      k.driftCharge += dt * (0.85 + (rel > 0.55 ? 0.55 : 0) - (rel < -0.4 ? 0.3 : 0)) * (sp > 0.55 * P.vmax ? 1 : 0.55);
+      k.driftCharge += dt * clamp(Math.abs(k.alpha) / 0.2, 0.4, 1.25) * (0.9 + 0.4 * Math.max(rel, 0) - 0.3 * Math.max(-rel, 0)) * (sp > 0.55 * P.vmax ? 1 : 0.6);
       let tier = 0;
       for (let i = 0; i < DRIFT_TIERS.length; i++) if (k.driftCharge >= DRIFT_TIERS[i].at) tier = i + 1;
       if (tier > k.driftTier) { k.driftTier = tier; this.emit('drift-tier', { id: k.id, tier }); }
@@ -243,33 +244,42 @@ export class Race {
     }
     if (k.hopT > 0 && k.driftState !== 1) k.hopT = Math.max(0, k.hopT - dt);
 
-    // --- steering
-    k.steer += (steerIn - k.steer) * damp(13, dt);
+    // --- steering: speed-sensitive, with yaw inertia; the tyres then decide where the kart actually goes
+    const spr = clamp(sp / P.vmax, 0, 1.3);
+    const sRate = (Math.abs(steerIn) < Math.abs(k.steer) ? 1.5 : 1) * (15 - 7 * Math.min(spr, 1));
+    k.steer += (steerIn - k.steer) * damp(sRate, dt);
     const zoneSteer = zone ? zone.steer : 1;
-    let dh = 0;
-    if (k.driftState === 2) {
+    // grip budget (m/s^2) from surface, zone, braking load and boost
+    let mu = SURF_MU[k.surface];
+    if (zone) mu = Math.min(mu, ZONE_MU[k.zone]);
+    if (k.surface === 'road' && !zone && k.boostT > 0) mu *= 1.1;
+    const D0 = P.aLat * 1.12 * mu * (1 - 0.28 * brk * clamp(vf / 15, 0, 1));
+    const drifting = k.driftState === 2;
+    const dirSign = vf >= -0.5 ? 1 : -1;
+    let wT;
+    if (drifting) {
       const rel = k.steer * k.driftDir;
-      const dOmega = Math.min(P.maxTurn * 0.95, 42 / Math.max(sp, 12));
-      dh = -k.driftDir * dOmega * (0.62 + 0.38 * rel) * dt;
+      const wBase = Math.min(P.maxTurn * 0.95, 1.35 * D0 / Math.max(sp, 10));
+      wT = -k.driftDir * wBase * (0.62 + 0.38 * rel);
     } else {
-      const omega = Math.min(P.maxTurn, P.aLat / Math.max(sp, 3)) * clamp(sp / 5, 0, 1) * zoneSteer * (k.surface === 'off' ? 0.9 : 1);
-      dh = -k.steer * omega * dt * (vf >= -0.5 ? 1 : -1);
+      const wMax = Math.min(P.maxTurn, 1.08 * D0 / Math.max(sp, 3));
+      wT = -k.steer * wMax * clamp(sp / 4, 0, 1) * zoneSteer * (k.surface === 'off' ? 0.9 : 1) * dirSign;
     }
-    k.h += dh;
+    const yawRate = (12 / Math.sqrt(P.weight)) * (1 - 0.3 * Math.min(spr, 1)) * (drifting ? 0.8 : 1);
+    k.yaw += (wT - k.yaw) * damp(yawRate, dt);
+    k.h += k.yaw * dt;
 
-    // --- tyre grip: velocity rotates toward the heading
-    const nfx = Math.sin(k.h), nfz = Math.cos(k.h);
-    let grip = SURFACE_GRIP[k.surface];
-    if (zone) grip = Math.min(grip, zone.grip);
-    if (k.driftState === 2) grip = zone && k.zone === 'ice' ? 1.6 : 3.1;
-    else if (k.surface === 'road' && !zone && k.boostT > 0) grip = 13;
-    const spd = Math.hypot(k.vx, k.vz);
-    const dir = k.vx * nfx + k.vz * nfz >= 0 ? 1 : -1;
-    const ga = 1 - Math.exp(-grip * dt);
-    k.vx += (nfx * spd * dir - k.vx) * ga;
-    k.vz += (nfz * spd * dir - k.vz) * ga;
-    k.speed = k.vx * nfx + k.vz * nfz;
-    k.slip = k.vx * -nfz + k.vz * nfx;
+    // --- tyres: lateral force from slip angle (saturating curve). Velocity is carried in world space,
+    // so turning the nose before the tyres bite creates real slip: understeer, slides, scrub.
+    const nfx = Math.sin(k.h), nfz = Math.cos(k.h), nrx = -nfz, nrz = nfx;
+    let vf2 = k.vx * nfx + k.vz * nfz, vl2 = k.vx * nrx + k.vz * nrz;
+    const alpha = Math.atan2(vl2, Math.max(Math.abs(vf2), 7));
+    const B = drifting ? 3.0 : 9, D = drifting ? D0 * 1.5 : D0;
+    const Fy = -D * Math.sin(1.45 * Math.atan(B * alpha));
+    const nv = vl2 + Fy * dt;
+    vl2 = nv * vl2 < 0 ? nv * 0.15 : nv;
+    k.vx = vf2 * nfx + vl2 * nrx; k.vz = vf2 * nfz + vl2 * nrz;
+    k.speed = vf2; k.slip = vl2; k.alpha = alpha;
 
     // --- integrate
     k.x += k.vx * dt; k.z += k.vz * dt;
@@ -363,7 +373,7 @@ export class Race {
     let dd = i - k.lastF;
     if (dd > T.N / 2) dd -= T.N; else if (dd < -T.N / 2) dd += T.N;
     k.prog += dd * T.step;
-    k.x = p.x; k.z = p.z; k.h = p.h; k.vx = 0; k.vz = 0; k.speed = 0; k.steer = 0;
+    k.x = p.x; k.z = p.z; k.h = p.h; k.vx = 0; k.vz = 0; k.speed = 0; k.steer = 0; k.yaw = 0; k.slip = 0;
     k.off = 0; k.idx = i; k.lastF = i; k.stuckT = 0; k.wrongT = 0;
     k.spinT = 0; k.spinAng = 0; k.invulnT = 2.2; k.boostT = 0; k.boostPow = 0;
     k.driftState = 0; k.driftCharge = 0; k.driftTier = 0;

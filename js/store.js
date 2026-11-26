@@ -2,7 +2,7 @@
 import { api } from './api.js';
 import { clamp } from './core/util.js';
 
-export const DEFAULT_SETTINGS = { quality: 'medium', master: 0.8, music: 0.45, sfx: 0.9, shake: 1, laps: 3 };
+export const DEFAULT_SETTINGS = { quality: 'medium', master: 0.8, music: 0.45, sfx: 0.9, shake: 1, laps: 3, controls: 'buttons', onscreen: 'auto', autoGas: false };
 export const defaultProfile = () => ({
   name: 'Driver', vehicle: 'comet', color: 'crimson', stripe: 'dual',
   rating: 0.4, racesPlayed: 0, onboarded: false, tutorialDone: false, placementDone: false, difficulty: 'auto',

@@ -454,12 +454,65 @@ function bodyDeform(L, W, beltY, topY, noseK = 0.2, tailK = 0.14) {
   };
 }
 
+
+// ---- surface snapping: lights/grilles are placed by raycasting onto the finished body so they always sit flush
+const _ray = new THREE.Raycaster();
+function snap(body, x, y, side = 'front') {
+  const m = new THREE.Mesh(body, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+  m.updateMatrixWorld(true);
+  const dz = side === 'front' ? -1 : 1;
+  _ray.set(new V3(x, y, -dz * 8), new V3(0, 0, dz));
+  const hit = _ray.intersectObject(m, false)[0];
+  if (!hit) return null;
+  const n = hit.face.normal.clone().transformDirection(m.matrixWorld).normalize();
+  if (n.z * dz > 0) n.negate();
+  return { p: hit.point.clone(), n: n.multiplyScalar(1) };
+}
+function onSurface(h, off = -0.012, roll = 0) {
+  const q = new THREE.Quaternion().setFromUnitVectors(new V3(0, 0, 1), h.n);
+  if (roll) q.multiply(new THREE.Quaternion().setFromAxisAngle(new V3(0, 0, 1), roll));
+  return new THREE.Matrix4().compose(h.p.clone().addScaledVector(h.n, off), q, new V3(1, 1, 1));
+}
+function lampRound(P, body, x, y, side, r, key, bezel = 'chrome') {
+  const h = snap(body, x, y, side); if (!h) return;
+  const m = onSurface(h);
+  P.add(bezel, cyl(r * 1.22, r * 1.22, 0.06, 22).rotateX(PI / 2).translate(0, 0, 0.022), m);
+  P.add('dark', cyl(r * 1.04, r * 1.04, 0.07, 22).rotateX(PI / 2).translate(0, 0, 0.026), m);
+  P.add(key, cyl(r, r * 0.9, 0.07, 22).rotateX(PI / 2).translate(0, 0, 0.032), m);
+}
+function lampBar(P, body, x, y, side, w, h, key, roll = 0) {
+  const hit = snap(body, x, y, side); if (!hit) return;
+  const m = onSurface(hit, -0.012, roll);
+  P.add('dark', rbox(w * 1.14, h * 1.5, 0.07, Math.min(0.03, h * 0.3)).translate(0, 0, 0.022), m);
+  P.add(key, rbox(w, h, 0.07, Math.min(0.025, h * 0.3)).translate(0, 0, 0.034), m);
+}
+function plate(P, body, x, y, side, w, h, key, d = 0.06, off = -0.012) {
+  const hit = snap(body, x, y, side); if (!hit) return null;
+  P.add(key, rbox(w, h, d, Math.min(0.02, h * 0.3)).translate(0, 0, d / 2 + 0.002), onSurface(hit, off));
+  return hit;
+}
+function slats(P, body, x, y, side, w, n, gap, key = 'carbon') {
+  for (let i = 0; i < n; i++) { const hit = snap(body, x, y + i * gap, side); if (hit) P.add(key, rbox(w, 0.014, 0.03, 0.005).translate(0, 0, 0.02), onSurface(hit, -0.004)); }
+}
+function mirrorAt(P, s, x, y, z, key = 'paint') {
+  P.add('carbon', rbox(0.1, 0.035, 0.035, 0.012), limbMatrix([s * (x - 0.1), y - 0.02, z], [s * x, y, z]));
+  P.add(key, ellipsoid(0.075, 0.055, 0.11), M([s * (x + 0.04), y + 0.01, z - 0.01]));
+}
+// bumper bar following the tapered plan of the body
+function bumper(P, body, def, W, y, side, h, d, key = 'carbon') {
+  const hit = snap(body, 0, y, side); if (!hit) return;
+  const z = hit.p.z, w = 2 * def(W / 2, y, z)[0] * 0.9, sgn = side === 'front' ? 1 : -1;
+  P.add(key, rbox(w, h, d, Math.min(0.05, h * 0.4)), M([0, y, z + sgn * (d / 2 - 0.035)]));
+}
+
 function pipCar(P) {
   const L = 3.0, W = 1.64, Rw = 0.31, ww = 0.2;
   const wheelX = W / 2 - 0.04, zf = 1.0, zr = -0.98;
   // tub
   const tub = [[-1.5, 0.3], [-1.53, 0.6], [-1.47, 0.86], [-1.25, 0.97], [0.55, 0.97], [1.05, 0.95], [1.4, 0.84], [1.53, 0.62], [1.5, 0.36], [1.3, 0.26], [-1.3, 0.26]];
-  P.add('paint', profileSolid(tub, W, { smooth: 2, bevel: 0.1, deform: bodyDeform(3.0, W, 0.97, 1.0, 0.22, 0.16) }));
+  const def = bodyDeform(3.0, W, 0.97, 1.0, 0.22, 0.16);
+  const body = profileSolid(tub, W, { smooth: 2, bevel: 0.1, deform: def });
+  P.add('paint', body);
   // sill / lower trim
   P.add('carbon', rbox(W * 1.0, 0.09, 2.4, 0.04), M([0, 0.3, -0.04]));
   // greenhouse glass
@@ -473,23 +526,19 @@ function pipCar(P) {
     P.add('paint', rbox(0.07, 0.07, 0.8, 0.02), limbMatrixBox([s * 0.355, 0.98, -1.22], [s * 0.34, 1.6, -0.9], 0.07, 0.06));
     P.add('paint', rbox(0.06, 0.62, 0.07, 0.02), M([s * 0.7, 1.28, -0.26]));
   }
-  // lights, grille, bumpers
+  // lights, grille, bumpers (snapped to the body)
   for (const s of [-1, 1]) {
-    P.add('chrome', cyl(0.17, 0.17, 0.06, 20).rotateX(PI / 2), M([s * 0.5, 0.78, 1.5]));
-    P.add('lightW', new THREE.CircleGeometry(0.13, 20), M([s * 0.5, 0.78, 1.532]));
-    P.add('chrome', cyl(0.085, 0.085, 0.05, 16).rotateX(PI / 2), M([s * 0.5, 0.58, 1.5]));
-    P.add('lightA', new THREE.CircleGeometry(0.06, 14), M([s * 0.5, 0.58, 1.526]));
-    P.add('lightR', new THREE.CircleGeometry(0.1, 16).rotateY(PI), M([s * 0.56, 0.76, -1.545]));
-    P.add('chrome', cyl(0.115, 0.115, 0.05, 16).rotateX(PI / 2), M([s * 0.56, 0.76, -1.525]));
-    P.add('paint', rbox(0.28, 0.06, 0.2, 0.025), M([s * 0.84, 1.0, 0.98], [0, 0.4 * s, 0]));
-    P.add('chrome', rbox(0.12, 0.08, 0.04, 0.015), M([s * 0.93, 1.02, 0.98]));
+    lampRound(P, body, s * 0.5, 0.78, 'front', 0.125, 'lightW');
+    lampRound(P, body, s * 0.52, 0.55, 'front', 0.06, 'lightA');
+    lampRound(P, body, s * 0.55, 0.76, 'rear', 0.095, 'lightR');
+    mirrorAt(P, s, 0.9, 1.0, 0.9);
     P.add('carbon', rbox(0.04, 0.1, 0.8, 0.015), M([s * (W / 2 - 0.005), 0.78, -0.24]));
   }
-  P.add('chrome', rbox(0.7, 0.2, 0.06, 0.03), M([0, 0.62, 1.52]));
-  for (let i = 0; i < 4; i++) P.add('carbon', rbox(0.6, 0.015, 0.03, 0.004), M([0, 0.56 + i * 0.045, 1.55]));
-  P.add('chrome', rbox(W * 0.98, 0.07, 0.07, 0.03), M([0, 0.38, 1.55]));
-  P.add('chrome', rbox(W * 0.98, 0.07, 0.07, 0.03), M([0, 0.38, -1.55]));
-  P.add('chrome', rbox(0.24, 0.08, 0.04, 0.02), M([0, 0.44, -1.57]));
+  plate(P, body, 0, 0.64, 'front', 0.62, 0.2, 'chrome', 0.05);
+  slats(P, body, 0, 0.56, 'front', 0.56, 4, 0.045);
+  bumper(P, body, def, W, 0.4, 'front', 0.08, 0.1, 'chrome');
+  bumper(P, body, def, W, 0.4, 'rear', 0.08, 0.1, 'chrome');
+  plate(P, body, 0, 0.5, 'rear', 0.26, 0.08, 'chrome', 0.04);
   P.add('chrome', cyl(0.006, 0.006, 0.5, 6), limbMatrix([-0.5, 1.6, -0.8], [-0.62, 2.0, -1.0]));
   // interior + seats
   P.add('interior', rbox(W * 0.72, 0.1, 1.5, 0.03), M([0, 0.9, -0.3]));
@@ -522,7 +571,9 @@ function dartCar(P) {
   const L = 3.7, W = 1.82, Rw = 0.35, ww = 0.26;
   const wheelX = W / 2 - 0.05, zf = 1.12, zr = -1.12;
   const tub = [[-1.8, 0.34], [-1.85, 0.72], [-1.72, 0.98], [-1.2, 1.04], [0.35, 1.02], [1.0, 0.95], [1.55, 0.8], [1.84, 0.62], [1.82, 0.38], [1.6, 0.28], [-1.5, 0.28]];
-  P.add('paint', profileSolid(tub, W, { smooth: 2, bevel: 0.1, deform: bodyDeform(3.7, W, 1.0, 1.1, 0.2, 0.12) }));
+  const def = bodyDeform(3.7, W, 1.0, 1.1, 0.2, 0.12);
+  const body = profileSolid(tub, W, { smooth: 2, bevel: 0.1, deform: def });
+  P.add('paint', body);
   P.add('carbon', rbox(W * 1.0, 0.1, 3.0, 0.04), M([0, 0.32, 0]));
   // fender flares
   for (const s of [-1, 1]) for (const z of [zf, zr]) {
@@ -536,24 +587,20 @@ function dartCar(P) {
     P.add('paint', rbox(0.07, 0.07, 0.8, 0.02), limbMatrixBox([s * 0.38, 1.04, 0.56], [s * 0.36, 1.6, 0.04], 0.07, 0.06));
     P.add('paint', rbox(0.07, 0.07, 0.8, 0.02), limbMatrixBox([s * 0.38, 1.08, -1.7], [s * 0.36, 1.6, -1.16], 0.07, 0.06));
     P.add('paint', rbox(0.06, 0.58, 0.08, 0.02), M([s * 0.78, 1.32, -0.55]));
-    P.add('carbon', rbox(0.1, 0.1, 0.18, 0.03), M([s * 0.98, 1.1, 0.55], [0, 0.3 * s, 0]));
-    // headlights, fog lamps
-    P.add('lightW', rbox(0.32, 0.09, 0.03, 0.02), M([s * 0.64, 0.84, 1.8], [0, 0.25 * s, 0]));
-    P.add('lightA', cyl(0.07, 0.07, 0.03, 14).rotateX(PI / 2), M([s * 0.7, 0.5, 1.82]));
-    P.add('lightA', cyl(0.045, 0.045, 0.03, 14).rotateX(PI / 2), M([s * 0.5, 0.5, 1.84]));
-    P.add('lightR', rbox(0.36, 0.1, 0.03, 0.02), M([s * 0.66, 0.9, -1.88], [0, -0.1 * s, 0]));
+    mirrorAt(P, s, 0.98, 1.12, 0.62);
+    // headlights, fog lamps, tail lamps
+    lampBar(P, body, s * 0.5, 0.68, 'front', 0.3, 0.065, 'lightW', s * 0.08);
+    lampRound(P, body, s * 0.74, 0.46, 'front', 0.05, 'lightA', 'carbon');
+    lampBar(P, body, s * 0.58, 0.9, 'rear', 0.34, 0.085, 'lightR', -s * 0.06);
     // mud flap
     P.add('carbon', rbox(0.04, 0.2, 0.22, 0.01), M([s * (W / 2 - 0.1), 0.36, zr - 0.5]));
-    // side vent
-    P.add('dark', rbox(0.03, 0.14, 0.4, 0.01), M([s * (W / 2 - 0.01), 0.82, zf + 0.5]));
   }
-  // grille / intake
-  P.add('dark', rbox(1.0, 0.24, 0.05, 0.03), M([0, 0.52, 1.84]));
-  for (let i = 0; i < 5; i++) P.add('carbon', rbox(0.96, 0.012, 0.04, 0.004), M([0, 0.43 + i * 0.045, 1.87]));
-  P.add('chrome', rbox(0.34, 0.08, 0.04, 0.02), M([0, 0.84, 1.84]));
-  P.add('lightR', cyl(0.025, 0.025, 0.04, 8).rotateX(PI / 2), M([0.0, 0.3, 1.88]));
-  P.add('carbon', rbox(W * 0.98, 0.14, 0.14, 0.05), M([0, 0.32, 1.86]));
-  P.add('carbon', rbox(W * 0.98, 0.14, 0.14, 0.05), M([0, 0.34, -1.86]));
+  // grille / intake, bumpers
+  plate(P, body, 0, 0.5, 'front', 0.6, 0.22, 'dark', 0.05);
+  slats(P, body, 0, 0.42, 'front', 0.56, 5, 0.04);
+  plate(P, body, 0, 0.68, 'front', 0.2, 0.05, 'chrome', 0.04);
+  bumper(P, body, def, W, 0.33, 'front', 0.14, 0.16);
+  bumper(P, body, def, W, 0.36, 'rear', 0.14, 0.16);
   // hood scoop + vents
   P.add('accent', profileSolid([[0.9, 0.99], [0.85, 1.12], [0.35, 1.14], [0.15, 1.03]], 0.6, { smooth: 1, bevel: 0.04 }));
   P.add('dark', rbox(0.44, 0.05, 0.1, 0.02), M([0, 1.12, 0.89], [0.1, 0, 0]));
@@ -570,7 +617,7 @@ function dartCar(P) {
   // exhaust
   P.add('chrome', cyl(0.075, 0.085, 0.3, 14).rotateX(PI / 2), M([0.5, 0.4, -1.92]));
   P.add('dark', new THREE.CircleGeometry(0.07, 14).rotateY(PI), M([0.5, 0.4, -2.075]));
-  P.add('lightW', rbox(0.3, 0.07, 0.03, 0.01), M([0, 0.56, -1.9]));
+  lampBar(P, body, 0, 0.58, 'rear', 0.3, 0.06, 'lightW');
   P.add('interior', rbox(W * 0.74, 0.1, 1.9, 0.03), M([0, 0.96, -0.5]));
   P.add('interior', rbox(0.52, 0.5, 0.16, 0.06), M([0.0, 1.28, -0.9], [-0.15, 0, 0]));
   P.add('interior', rbox(W * 0.78, 0.2, 0.32, 0.06), M([0, 1.04, 0.45], [0.3, 0, 0]));
@@ -591,7 +638,9 @@ function roadsterCar(P) {
   const L = 3.6, W = 1.72, Rw = 0.33, ww = 0.24;
   const wheelX = W / 2 - 0.04, zf = 1.08, zr = -1.06;
   const tub = [[-1.78, 0.32], [-1.82, 0.6], [-1.7, 0.84], [-1.3, 0.9], [-0.2, 0.88], [0.5, 0.9], [1.2, 0.92], [1.62, 0.8], [1.86, 0.58], [1.84, 0.36], [1.62, 0.26], [-1.5, 0.26]];
-  P.add('paint', profileSolid(tub, W, { smooth: 2, bevel: 0.1, deform: bodyDeform(3.6, W, 0.88, 0.95, 0.24, 0.14) }));
+  const def = bodyDeform(3.6, W, 0.88, 0.95, 0.24, 0.14);
+  const body = profileSolid(tub, W, { smooth: 2, bevel: 0.1, deform: def });
+  P.add('paint', body);
   P.add('carbon', rbox(W * 1.0, 0.09, 2.9, 0.04), M([0, 0.3, 0]));
   // cockpit tub (dark) + seats
   P.add('interior', rbox(W * 0.66, 0.06, 1.35, 0.03), M([0, 0.9, -0.28]));
@@ -607,22 +656,22 @@ function roadsterCar(P) {
   for (const s of [-1, 1]) {
     P.add('chrome', rbox(0.035, 0.4, 0.05, 0.012), M([s * W * 0.39, 1.08, 0.48], [-0.9, 0, 0]));
     // headlights
-    P.add('chrome', cyl(0.14, 0.14, 0.06, 18).rotateX(PI / 2), M([s * 0.58, 0.88, 1.56], [0.3, 0, 0]));
-    P.add('lightW', new THREE.CircleGeometry(0.11, 18), M([s * 0.58, 0.9, 1.585], [0.3, 0, 0]));
-    P.add('lightR', rbox(0.34, 0.09, 0.03, 0.02), M([s * 0.58, 0.72, -1.84]));
-    P.add('dark', rbox(0.03, 0.1, 0.5, 0.01), M([s * (W / 2 - 0.01), 0.7, zf + 0.35]));
-    for (let i = 0; i < 4; i++) P.add('carbon', rbox(0.03, 0.12, 0.018, 0.005), M([s * (W / 2 - 0.005), 0.72, zf + 0.15 + i * 0.1]));
-    P.add('chrome', rbox(0.1, 0.06, 0.16, 0.025), M([s * 0.93, 1.0, 0.5]));
+    lampRound(P, body, s * 0.56, 0.74, 'front', 0.115, 'lightW');
+    lampBar(P, body, s * 0.56, 0.7, 'rear', 0.36, 0.085, 'lightR');
+    P.add('dark', rbox(0.03, 0.1, 0.5, 0.01), M([s * (def(W / 2, 0.7, zf + 0.35)[0] - 0.004), 0.7, zf + 0.35]));
+    for (let i = 0; i < 4; i++) P.add('carbon', rbox(0.03, 0.12, 0.018, 0.005), M([s * (def(W / 2, 0.72, zf + 0.15 + i * 0.1)[0] - 0.002), 0.72, zf + 0.15 + i * 0.1]));
+    mirrorAt(P, s, 0.93, 1.2, 0.46, 'chrome');
     P.add('chrome', cyl(0.06, 0.06, 0.3, 14).rotateX(PI / 2), M([s * 0.45, 0.42, -1.93]));
     P.add('dark', new THREE.CircleGeometry(0.052, 14).rotateY(PI), M([s * 0.45, 0.42, -2.085]));
   }
   P.add('chrome', new THREE.TorusGeometry(0.52, 0.04, 8, 20, PI), M([0, 0.9, -0.62]));
   // hood louvres + grille
   for (let i = 0; i < 5; i++) P.add('carbon', rbox(0.7, 0.012, 0.05, 0.004), M([0, 0.945, 0.8 + i * 0.12], [0.06, 0, 0]));
-  P.add('dark', rbox(0.9, 0.22, 0.05, 0.03), M([0, 0.52, 1.86]));
-  P.add('chrome', rbox(0.96, 0.03, 0.05, 0.012), M([0, 0.66, 1.87]));
-  P.add('chrome', rbox(W * 0.98, 0.06, 0.07, 0.03), M([0, 0.33, 1.84]));
-  P.add('chrome', rbox(W * 0.98, 0.06, 0.07, 0.03), M([0, 0.36, -1.84]));
+  plate(P, body, 0, 0.52, 'front', 0.9, 0.22, 'dark', 0.05);
+  plate(P, body, 0, 0.66, 'front', 0.96, 0.03, 'chrome', 0.04);
+  slats(P, body, 0, 0.45, 'front', 0.84, 4, 0.045, 'chrome');
+  bumper(P, body, def, W, 0.33, 'front', 0.07, 0.1, 'chrome');
+  bumper(P, body, def, W, 0.36, 'rear', 0.07, 0.1, 'chrome');
   // roll hoops behind seats
   for (const s of [-1, 1]) {
     P.add('chrome', new THREE.TorusGeometry(0.2, 0.035, 8, 16, PI), M([s * 0.44, 1.05, -0.9]));

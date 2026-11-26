@@ -305,7 +305,7 @@ export class Game {
     const speedRatio = clamp(Math.abs(k.speed) / k.P.vmax, 0, 1.3);
     const drifting = k.driftState === 2;
     // body attitude
-    const slideYaw = drifting ? -k.driftDir * (0.38 + 0.12 * Math.abs(k.steer)) : clamp(-k.slip * 0.02, -0.15, 0.15);
+    const slideYaw = 0; // the real slip angle already shows in the heading
     vis.slide = lerp(vis.slide ?? 0, slideYaw, damp(12, dt || 0.016));
     vis.tilt = lerp(vis.tilt, -k.steer * 0.06 * speedRatio - (drifting ? -k.driftDir * 0.06 : 0), damp(10, dt || 0.016));
     const accel = k.prev.rawThr > 0 && speedRatio < 0.9 ? 1 : 0;

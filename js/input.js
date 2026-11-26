@@ -4,11 +4,12 @@ import { clamp, damp } from './core/util.js';
 export class Input {
   constructor() {
     this.keys = new Set();
-    this.touch = { left: false, right: false, brake: false, drift: false, item: false, gas: true };
+    this.touch = { left: false, right: false, brake: false, drift: false, item: false, gas: false };
+    this.wheelAngle = 0; this.wheelMax = 1.9; this.wheelHeld = false; this.gasV = 0; this.brakeV = 0; this.onscreen = false; this.scheme = 'buttons';
     this.state = { steer: 0, throttle: 0, brake: 0, drift: false, item: false, reset: false, look: false };
     this.device = 'keyboard';
     this.listeners = {};
-    this.kbSteer = 0;
+    this.kbSteer = 0; this.btnSteer = 0; this.autoGas = false;
     this.padPrev = {};
     this.enabled = true;
     this.touchAutoGas = true;
@@ -28,30 +29,31 @@ export class Input {
   on(ev, fn) { (this.listeners[ev] ||= []).push(fn); return () => (this.listeners[ev] = this.listeners[ev].filter((f) => f !== fn)); }
   emit(ev, ...a) { (this.listeners[ev] || []).forEach((f) => f(...a)); }
 
+  // On-screen controls (pointer events, so they work with touch and mouse): buttons, pedals and a steering wheel.
   bindTouch() {
-    const map = { 'tc-left': 'left', 'tc-right': 'right', 'tc-brake': 'brake', 'tc-drift': 'drift', 'tc-item': 'item' };
-    const set = (id, v) => { const k = map[id]; if (k) { this.touch[k] = v; this.device = 'touch'; if (v && k === 'item') this.emit('touch-item'); } };
-    const root = document;
-    const handler = (type) => (e) => {
-      const t = e.target.closest && e.target.closest('[data-tc]');
-      if (type === 'start' && t) { e.preventDefault(); set(t.id, true); t.classList.add('down'); }
-    };
-    root.addEventListener('touchstart', handler('start'), { passive: false });
-    const endAll = (e) => {
-      // recompute active set from remaining touches
-      const active = new Set();
-      for (const tch of e.touches) { const el = document.elementFromPoint(tch.clientX, tch.clientY); const t = el && el.closest && el.closest('[data-tc]'); if (t) active.add(t.id); }
-      for (const id of Object.keys(map)) { const on = active.has(id); if (!on) { set(id, false); const el = document.getElementById(id); if (el) el.classList.remove('down'); } }
-    };
-    root.addEventListener('touchend', endAll); root.addEventListener('touchcancel', endAll);
-    root.addEventListener('touchmove', (e) => {
-      const t0 = e.target.closest && e.target.closest('[data-tc-zone]');
-      if (!t0) return;
-      e.preventDefault();
-      const active = new Set();
-      for (const tch of e.touches) { const el = document.elementFromPoint(tch.clientX, tch.clientY); const t = el && el.closest && el.closest('[data-tc]'); if (t) active.add(t.id); }
-      for (const id of ['tc-left', 'tc-right']) { set(id, active.has(id)); const el = document.getElementById(id); if (el) el.classList.toggle('down', active.has(id)); }
+    const map = { 'tc-left': 'left', 'tc-right': 'right', 'tc-brake': 'brake', 'tc-drift': 'drift', 'tc-item': 'item', 'tc-gas': 'gas' };
+    const set = (k, v, pt) => { this.touch[k] = v; if (pt === 'touch' && v) this.device = 'touch'; if (v && k === 'item') this.emit('touch-item'); };
+    document.addEventListener('pointerdown', (e) => {
+      const el = e.target.closest && e.target.closest('[data-tc]'); if (!el) return;
+      e.preventDefault(); try { el.setPointerCapture(e.pointerId); } catch {}
+      el.classList.add('down'); set(map[el.id], true, e.pointerType);
+      const up = () => { el.classList.remove('down'); set(map[el.id], false); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up); el.removeEventListener('lostpointercapture', up); };
+      el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up); el.addEventListener('lostpointercapture', up);
     }, { passive: false });
+    // steering wheel: drag around the hub; springs back to centre on release
+    const wheel = document.getElementById('tc-wheel'); this.wheelEl = wheel;
+    if (wheel) {
+      let id = null, last = 0;
+      const ang = (e) => { const r = wheel.getBoundingClientRect(); return Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2)); };
+      wheel.addEventListener('pointerdown', (e) => { e.preventDefault(); id = e.pointerId; wheel.setPointerCapture(id); last = ang(e); this.wheelHeld = true; if (e.pointerType === 'touch') this.device = 'touch'; }, { passive: false });
+      wheel.addEventListener('pointermove', (e) => {
+        if (e.pointerId !== id) return;
+        const a = ang(e); let d = a - last; if (d > Math.PI) d -= 2 * Math.PI; if (d < -Math.PI) d += 2 * Math.PI; last = a;
+        this.wheelAngle = clamp(this.wheelAngle + d, -this.wheelMax * 1.15, this.wheelMax * 1.15);
+      });
+      const end = (e) => { if (e.pointerId === id) { id = null; this.wheelHeld = false; } };
+      wheel.addEventListener('pointerup', end); wheel.addEventListener('pointercancel', end); wheel.addEventListener('lostpointercapture', end);
+    }
   }
 
   pad() {
@@ -65,7 +67,7 @@ export class Input {
     let steerT = (k.has('ArrowRight') || k.has('KeyD') ? 1 : 0) - (k.has('ArrowLeft') || k.has('KeyA') ? 1 : 0);
     let thr = k.has('ArrowUp') || k.has('KeyW') ? 1 : 0;
     let brk = k.has('ArrowDown') || k.has('KeyS') ? 1 : 0;
-    let drift = k.has('Space') || k.has('ShiftLeft') && false;
+    let drift = k.has('Space');
     let item = k.has('KeyE') || k.has('ShiftLeft') || k.has('ShiftRight') || k.has('KeyF') || k.has('Enter') && false;
     let look = k.has('KeyC') || k.has('KeyB');
     // keyboard steering ramps for finer control
@@ -95,13 +97,30 @@ export class Input {
       }
     }
 
-    // touch
-    if (this.device === 'touch') {
+    // on-screen controls (touch, or mouse when shown on desktop). Combined with keyboard/pad: the stronger input wins.
+    if (this.onscreen) {
       const t = this.touch;
-      steer = (t.right ? 1 : 0) - (t.left ? 1 : 0);
-      thr = this.touchAutoGas && !t.brake ? 1 : 0; brk = t.brake ? 1 : 0; drift = t.drift; item = t.item;
-      if (steer) this.kbSteer += (steer - this.kbSteer) * damp(9, dt); else this.kbSteer += (0 - this.kbSteer) * damp(14, dt);
-      steer = this.kbSteer;
+      this.gasV += ((t.gas ? 1 : 0) - this.gasV) * damp(t.gas ? 8 : 16, dt);
+      this.brakeV += ((t.brake ? 1 : 0) - this.brakeV) * damp(t.brake ? 9 : 16, dt);
+      let ts;
+      if (this.scheme === 'wheel') {
+        if (!this.wheelHeld) this.wheelAngle *= Math.exp(-9 * dt);
+        if (Math.abs(this.wheelAngle) < 0.004) this.wheelAngle = 0;
+        ts = clamp(this.wheelAngle / this.wheelMax, -1, 1);
+        // progressive response around centre for fine control
+        ts = Math.sign(ts) * Math.pow(Math.abs(ts), 1.25);
+        if (this.wheelEl) this.wheelEl.style.transform = `rotate(${(this.wheelAngle * 180 / Math.PI).toFixed(1)}deg)`;
+      } else {
+        const tgt = (t.right ? 1 : 0) - (t.left ? 1 : 0);
+        this.btnSteer += (tgt - this.btnSteer) * damp(tgt ? 6.5 : 13, dt); ts = Math.abs(this.btnSteer) < 0.01 ? 0 : this.btnSteer;
+      }
+      if (Math.abs(ts) > Math.abs(steer)) steer = ts;
+      thr = Math.max(thr, this.gasV);
+      if (this.autoGas && this.device === 'touch' && !t.brake) thr = Math.max(thr, 1);
+      brk = Math.max(brk, this.brakeV);
+      drift = drift || t.drift; item = item || t.item;
+      const g = document.getElementById('tc-gas'), b = document.getElementById('tc-brake');
+      if (g) g.style.setProperty('--p', this.gasV.toFixed(2)); if (b) b.style.setProperty('--p', this.brakeV.toFixed(2));
     }
 
     s.steer = clamp(steer, -1, 1); s.throttle = thr; s.brake = brk; s.drift = !!drift; s.item = !!item; s.look = !!look;
@@ -109,11 +128,14 @@ export class Input {
     return s;
   }
 
+  configure({ scheme, onscreen, autoGas }) { this.scheme = scheme === 'wheel' ? 'wheel' : 'buttons'; this.autoGas = !!autoGas; this.onscreenMode = onscreen; this.refreshOnscreen(); }
+  refreshOnscreen() { const m = this.onscreenMode || 'auto'; this.onscreen = m === 'on' || (m === 'auto' && this.device === 'touch'); }
+
   anyPress() { return this.keys.size > 0; }
 }
 
 export function keyHints(device) {
-  if (device === 'touch') return { accel: 'Auto', steer: 'Left / Right pads', brake: 'BRAKE', drift: 'DRIFT', item: 'ITEM', reset: 'Menu → Respawn' };
+  if (device === 'touch') return { accel: 'the GAS pedal', steer: 'the wheel / arrow pads', brake: 'the BRAKE pedal', drift: 'DRIFT', item: 'ITEM', reset: 'Menu → Respawn' };
   if (device === 'gamepad') return { accel: 'RT / A', steer: 'Left stick', brake: 'LT / B', drift: 'RB / X', item: 'Y / LB', reset: 'Menu → Respawn' };
   return { accel: 'W / ↑', steer: 'A D / ← →', brake: 'S / ↓', drift: 'Space', item: 'E / Shift', reset: 'R' };
 }

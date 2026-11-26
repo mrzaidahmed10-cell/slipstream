@@ -5,7 +5,9 @@ import { trackThumb } from './thumbs.js';
 import { store } from '../store.js';
 import { api } from '../api.js';
 import { VEHICLES, PAINTS, STRIPES, PAINT_BY_ID, VEHICLE_BY_ID } from '../core/vehicles.js';
-import { RACE_TRACKS, CUPS, TRACK_DEFS } from '../core/tracks.js';
+import { RACE_TRACKS, CUPS, TRACK_DEFS, getTrack } from '../core/tracks.js';
+import { trackMap, ZONE_COLORS } from './trackmap.js';
+import { confetti } from './helpers.js';
 import { CLASSES, DIFFICULTIES, classFor } from '../core/skill.js';
 import { ITEM_INFO } from '../core/race.js';
 import { keyHints } from '../input.js';
@@ -15,6 +17,18 @@ const trackName = (id) => TRACK_DEFS.find((t) => t.id === id)?.name || id;
 const logo = (extra = '') => `<div class="logo">${logoMark}<div>Slipstream<small>${extra || 'KART RACING'}</small></div></div>`;
 const back = (label = 'Back') => `<button class="back" data-act="back" aria-label="${label}">${ICON.back}</button>`;
 const POINTS = [15, 12, 10, 8, 6, 4, 2, 1];
+const ACC = { stadium: '#ff9a3a', desert: '#ffb02e', winter: '#7dd3ff', beach: '#2ee6c8', forest: '#6fd36f', city: '#ff4fa8' };
+const ZNAME = { ice: 'Black ice', sand: 'Soft sand', wet: 'Wet road' };
+function trackDetail(id, p) {
+  const t = getTrack(id), d = t.def, b = p.bests[id] || {};
+  const zs = [...new Set(t.zones.map((z) => z.type))];
+  return `<div class="d-banner" style="--acc:${ACC[d.theme]}"><img src="${trackThumb(id)}" alt=""><div class="d-title"><div class="tiny" style="letter-spacing:.2em;color:var(--acc)">${d.theme.toUpperCase()}</div><h2>${esc(d.name)}</h2>${stars(d.difficulty)}</div></div>
+    <p class="dim small" style="margin:10px 0">${esc(d.blurb)}</p>
+    <div class="d-stats"><div><b>${(t.length / 1000).toFixed(2)}<small> km</small></b><span>Length</span></div><div><b>${b.lap ? fmtTime(b.lap) : '—'}</b><span>Your best lap</span></div><div><b>${t.pads.length}</b><span>Boost pads</span></div><div><b>${t.itemRows.reduce((a, r) => a + r.lanes.length, 0)}</b><span>Item boxes</span></div></div>
+    <div class="row wrap" style="gap:6px;margin:10px 0">${zs.length ? zs.map((z) => `<span class="chip"><i class="dot" style="background:${ZONE_COLORS[z]}"></i>${ZNAME[z]}</span>`).join('') : '<span class="chip">Clean tarmac</span>'}</div>
+    <img class="d-map" src="${trackMap(id)}" alt="Track map of ${esc(d.name)}">
+    <div class="legend"><span><i style="background:#ffd23f"></i>Boost pad</span><span><i style="background:linear-gradient(135deg,#ff5fa8,#34e0ff)"></i>Item box</span><span><i class="n">1</i>Corner</span></div>`;
+}
 
 export const screens = {
   // ---------------------------------------------------------------- title / sign in
@@ -194,11 +208,12 @@ export const screens = {
       if (mode === 'gp') {
         $('#pick', el).innerHTML = `<div class="grid-tracks" style="grid-template-columns:repeat(auto-fill,minmax(320px,1fr))">${CUPS.map((c) => `<button class="tcard ${opts.cup === c.id ? 'sel' : ''}" data-cup="${c.id}"><div style="display:grid;grid-template-columns:repeat(3,1fr)">${c.tracks.map((t) => `<img src="${trackThumb(t, 240, 150)}" alt="" style="aspect-ratio:8/5">`).join('')}</div><div class="tb"><b>${c.name}</b><span class="dim small">${c.tracks.map(trackName).join(' · ')}</span></div></button>`).join('')}</div>`;
       } else {
-        $('#pick', el).innerHTML = `<div class="grid-tracks">${RACE_TRACKS.map((t) => {
+        $('#pick', el).innerHTML = `<div class="setup-cols"><div class="setup-left"><div class="grid-tracks compact">${RACE_TRACKS.map((t) => {
           const b = p.bests[t.id] || {};
-          return `<button class="tcard ${opts.track === t.id ? 'sel' : ''}" data-track="${t.id}"><img src="${trackThumb(t.id)}" alt="" loading="lazy"><div class="tb"><div class="row"><b>${esc(t.name)}</b><span class="grow"></span>${stars(t.difficulty)}</div><div class="dim small">${esc(t.blurb)}</div>${b.lap ? `<div class="tiny" style="margin-top:6px;color:var(--gold)">BEST LAP ${fmtTime(b.lap)}</div>` : ''}</div></button>`;
-        }).join('')}</div>`;
+          return `<button class="tcard ${opts.track === t.id ? 'sel' : ''}" data-track="${t.id}" style="--acc:${ACC[t.theme]}"><img src="${trackThumb(t.id, 320, 180)}" alt="" loading="lazy"><div class="tb"><div class="row"><b>${esc(t.name)}</b><span class="grow"></span>${stars(t.difficulty)}</div>${b.lap ? `<div class="tiny" style="margin-top:2px;color:var(--gold)">BEST ${fmtTime(b.lap)}</div>` : ''}</div></button>`;
+        }).join('')}</div></div><aside class="panel detail" id="detail">${trackDetail(opts.track, p)}</aside></div>`;
       }
+      const sl = $('.setup-left', el), ob = $('#opts', el); if (sl && ob && ob.parentNode !== sl) sl.appendChild(ob);
       const o = [];
       o.push(`<div><div class="sect">Laps</div><div class="opts">${[3, 5].map((n) => `<button class="opt ${opts.laps === n ? 'on' : ''}" data-laps="${n}">${n} laps</button>`).join('')}</div></div>`);
       if (mode !== 'time') {
@@ -221,7 +236,8 @@ export const screens = {
   showPause() {
     if (this.paused) return; this.paused = true; this.game.pause(true);
     const wrap = document.createElement('div'); wrap.className = 'overlay'; wrap.id = 'pause';
-    wrap.innerHTML = `<div class="panel modal"><h2>Paused</h2>
+    const tid = this.raceCtl?.cfg?.trackId;
+    wrap.innerHTML = `<div class="panel modal"><h2>Paused</h2>${tid ? `<img class="pause-map" src="${trackMap(tid, 420, 230, { numbers: false })}" alt="">` : ''}
       <button class="btn primary wide" data-p="resume">Resume</button>
       <button class="btn wide" data-p="respawn">Respawn on track</button>
       <button class="btn wide" data-p="restart">Restart race</button>
@@ -256,6 +272,7 @@ export const screens = {
         <div class="row wrap">${gp ? `<button class="btn primary" data-act="next">${gp.raceNo < gp.of ? 'Next race' : 'See cup results'}</button>` : `<button class="btn primary" data-act="again">Race again</button>`}<button class="btn" data-act="menu">Menu</button></div>
       </div></div>`);
     this.setBack(null);
+    if (me.place <= 3 && cfg.raceMode !== 'time') { confetti(); this.audio.sfx('finish'); }
     this.bind(el, { again: () => this.restartRace(true), next: () => gp.next(), menu: () => { gp ? this.cup = null : 0; this.screenMenu(); } });
     $('.btn.primary', el).focus();
   },
@@ -267,7 +284,7 @@ export const screens = {
       <div style="text-align:center"><div class="res-place" style="display:inline-block">${me}<sup>${ordinal(me).replace(/\d+/, '')}</sup></div><h2>${me === 1 ? 'Cup champion!' : me <= 3 ? 'On the podium' : 'Cup complete'}</h2></div>
       <div class="panel table cup-rows">${rows.map((r, i) => `<div class="r ${r.isPlayer ? 'me' : ''}"><b>${i + 1}</b><span>${esc(r.name)}</span><span class="dim small">${r.places.map((x) => ordinal(x)).join(' · ')}</span><span class="t" style="color:#fff">${r.pts} pts</span></div>`).join('')}</div>
       <button class="btn primary" data-act="menu" style="align-self:center">Back to menu</button></div></div>`);
-    this.audio.sfx(me <= 3 ? 'finish' : 'lap'); this.setBack(null);
+    this.audio.sfx(me <= 3 ? 'finish' : 'lap'); if (me <= 3) confetti(); this.setBack(null);
     this.bind(el, { menu: () => { this.cup = null; this.screenMenu(); } });
   },
 
@@ -306,7 +323,10 @@ export const screens = {
       <div class="panel pad" style="max-width:640px;width:100%">
         <div class="srow"><div><b>Graphics quality</b><div class="tiny dim">Lower if the game stutters.</div></div><div class="opts" id="q">${['low', 'medium', 'high'].map((q) => `<button class="opt ${s.quality === q ? 'on' : ''}" data-q="${q}">${q[0].toUpperCase() + q.slice(1)}</button>`).join('')}</div></div>
         ${[['master', 'Master volume'], ['music', 'Music'], ['sfx', 'Sound effects']].map(([k, l]) => `<div class="srow"><b>${l}</b><input type="range" min="0" max="1" step="0.05" value="${s[k]}" data-vol="${k}" aria-label="${l}"></div>`).join('')}
-        <div class="srow"><b>Camera shake</b><input type="range" min="0" max="1.5" step="0.1" value="${s.shake}" data-shake aria-label="Camera shake"></div>
+        <div class="srow"><b>Camera shake</b><input type="range" min="0" max="1" step="0.1" value="${s.shake}" data-shake aria-label="Camera shake"></div>
+        <div class="srow"><div><b>Steering style</b><div class="tiny dim">Buttons = arrow pads. Wheel = drag a steering wheel (touch or mouse). Both come with gas and brake pedals.</div></div><div class="opts" id="cs">${[['buttons', 'Buttons'], ['wheel', 'Wheel']].map(([v, l]) => `<button class="opt ${s.controls === v ? 'on' : ''}" data-cs="${v}">${l}</button>`).join('')}</div></div>
+        <div class="srow"><div><b>On-screen controls</b><div class="tiny dim">Wheel, pedals and buttons on the screen. Auto shows them on touch devices only.</div></div><div class="opts" id="os">${[['auto', 'Auto'], ['on', 'Always'], ['off', 'Off']].map(([v, l]) => `<button class="opt ${s.onscreen === v ? 'on' : ''}" data-os="${v}">${l}</button>`).join('')}</div></div>
+        <div class="srow"><div><b>Auto-accelerate (touch)</b><div class="tiny dim">Keep your foot down automatically; use the brake pedal to slow.</div></div><div class="opts" id="ag">${[[true, 'On'], [false, 'Off']].map(([v, l]) => `<button class="opt ${!!s.autoGas === v ? 'on' : ''}" data-ag="${v}">${l}</button>`).join('')}</div></div>
         <div class="srow"><div><b>Default rival difficulty</b></div><div class="opts" id="df">${DIFFICULTIES.map((d) => `<button class="opt ${store.profile.difficulty === d.id ? 'on' : ''}" data-d="${d.id}">${d.name}</button>`).join('')}</div></div>
         <div class="srow"><div><b>Skill check</b><div class="tiny dim">Retake the calibration races to reset your rating (${classFor(store.profile.rating).name}).</div></div><button class="btn sm" data-act="retake">Retake</button></div>
         <div class="srow"><div><b>Test drive</b><div class="tiny dim">Replay the tutorial.</div></div><button class="btn sm" data-act="tut">Replay</button></div>
@@ -314,6 +334,8 @@ export const screens = {
       </div></div>`);
     el.addEventListener('click', (e) => {
       const q = e.target.closest('[data-q]'); if (q) { store.updateSettings({ quality: q.dataset.q }); this.game.applyQuality(); $$('#q .opt', el).forEach((b) => b.classList.toggle('on', b === q)); this.audio.sfx('ui'); }
+      const sel = (att, key, conv) => { const b = e.target.closest('[' + att + ']'); if (!b) return false; const v = b.getAttribute(att); store.updateSettings({ [key]: conv(v) }); $$('[' + att + ']', el).forEach((x) => x.classList.toggle('on', x === b)); this.audio.sfx('ui'); return true; };
+      if (sel('data-cs', 'controls', (v) => v) || sel('data-os', 'onscreen', (v) => v) || sel('data-ag', 'autoGas', (v) => v === 'true')) return;
       const d = e.target.closest('[data-d]'); if (d) { store.update({ difficulty: d.dataset.d }); if (this.opts) this.opts.difficulty = d.dataset.d; $$('#df .opt', el).forEach((b) => b.classList.toggle('on', b === d)); this.audio.sfx('ui'); }
     });
     el.addEventListener('input', (e) => {
@@ -331,7 +353,7 @@ export const screens = {
     const itemDesc = { turbo: 'Instant speed boost.', triple: 'Three boosts — use them one at a time.', oil: 'Drop a slick behind you; rivals who hit it spin out.', mine: 'Leave a mine on the road.', seeker: 'Homing pod that chases the kart ahead.', shield: 'Absorbs one hit.' };
     const el = this.show(`<div class="screen shade-full"><div class="top">${back()}<h2>How to play</h2></div>
       <div class="help-grid">
-        <div class="panel"><h3>Controls</h3><div class="small col" style="gap:6px"><div>Accelerate <kbd>${kb.accel}</kbd></div><div>Steer <kbd>${kb.steer}</kbd></div><div>Brake / reverse <kbd>${kb.brake}</kbd></div><div>Drift <kbd>${kb.drift}</kbd></div><div>Use item <kbd>${kb.item}</kbd></div><div>Respawn <kbd>R</kbd> · Look back <kbd>C</kbd> · Pause <kbd>Esc</kbd></div><div class="dim tiny" style="margin-top:6px">Gamepad: ${pad.steer} · ${pad.accel} gas · ${pad.brake} brake · ${pad.drift} drift · ${pad.item} item. Touch: on-screen pads, with auto-accelerate.</div></div></div>
+        <div class="panel"><h3>Controls</h3><div class="small col" style="gap:6px"><div>Accelerate <kbd>${kb.accel}</kbd></div><div>Steer <kbd>${kb.steer}</kbd></div><div>Brake / reverse <kbd>${kb.brake}</kbd></div><div>Drift <kbd>${kb.drift}</kbd></div><div>Use item <kbd>${kb.item}</kbd></div><div>Respawn <kbd>R</kbd> · Look back <kbd>C</kbd> · Pause <kbd>Esc</kbd></div><div class="dim tiny" style="margin-top:6px">Gamepad: ${pad.steer} · ${pad.accel} gas · ${pad.brake} brake · ${pad.drift} drift · ${pad.item} item. Touch / mouse: on-screen steering wheel or arrow pads, plus gas and brake pedals (Settings → Steering style).</div></div></div>
         <div class="panel"><h3>Drifting</h3><div class="small">Tap drift while turning to hop into a slide. Hold it and the meter charges through <b style="color:#7dd3ff">blue</b>, <b style="color:#ffb02e">orange</b> and <b style="color:#d27dff">purple</b>. Release to fire a turbo boost — the longer the slide, the bigger the boost.</div></div>
         <div class="panel"><h3>Rocket start</h3><div class="small">Hold accelerate as the last light goes out for a free burst off the line — but go too early and you’ll stall.</div></div>
         <div class="panel"><h3>Surfaces</h3><div class="small">Stay on the tarmac: grass and sand slow you down. <b style="color:#9fe8ff">Ice</b> removes grip, <b style="color:#8ab4ff">wet</b> patches loosen it, and kerbs are safe to clip. Boost pads give a free burst.</div></div>

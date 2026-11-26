@@ -68,7 +68,7 @@ export function aiInput(k, race, dt) {
 
   // --- speed plan: slow for corners ahead using a braking envelope
   const drifting = k.driftState === 2;
-  const aLat = P.aLat * (0.8 + 0.3 * sk) * (drifting ? 1.2 : 1);
+  const aLat = P.aLat * (0.72 + 0.3 * sk) * (drifting ? 1.3 : 1);
   const decel = 23 + 7 * sk;
   let tv = P.vmax * (1 + k.boostPow) * k.speedMul * (k.rubberMul ?? 1);
   if (k.auto) tv *= 0.55;
