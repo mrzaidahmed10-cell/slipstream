@@ -1,5 +1,5 @@
 // Prints geometry stats for every track and writes an SVG preview per track.
-import { TRACK_DEFS, getTrack } from '../public/js/core/tracks.js';
+import { TRACK_DEFS, getTrack } from '../js/core/tracks.js';
 import fs from 'node:fs';
 const out = process.argv[2] || '.';
 for (const d of TRACK_DEFS) {

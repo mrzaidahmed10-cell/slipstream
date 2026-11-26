@@ -12,14 +12,14 @@ A fast, drift-heavy kart racer for the browser. Three.js, no build step.
 
 ## Deploy (Cloudflare Pages)
 
-1. Create a Pages project from this repo. Build command: *(none)*. Build output directory: `public`.
+1. Create a Pages project from this repo. Framework preset: None. Build command: leave blank. Build output directory: leave blank or `/` (the site is at the repo root: `index.html`, `js/`, `css/`, `vendor/`).
 2. Create a KV namespace and bind it to the project (Settings → Bindings → KV namespace) with variable name `SLIPSTREAM_KV` (production and preview).
 3. `functions/` must stay at the repo root: it serves `/api/*`.
 
 ## Local dev
 
 ```
-node tools/serve.mjs 8123   # serves public/ and runs the real /api handler with a file-backed mock KV
+node tools/serve.mjs 8123   # serves the repo root and runs the real /api handler with a file-backed mock KV
 node tools/test-api.mjs     # API tests
 ```
 

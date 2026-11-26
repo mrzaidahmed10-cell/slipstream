@@ -1,7 +1,7 @@
-import { Race } from '../public/js/core/race.js';
-import { getTrack, RACE_TRACKS } from '../public/js/core/tracks.js';
-import { VEHICLES } from '../public/js/core/vehicles.js';
-import { ladderSkills } from '../public/js/core/skill.js';
+import { Race } from '../js/core/race.js';
+import { getTrack, RACE_TRACKS } from '../js/core/tracks.js';
+import { VEHICLES } from '../js/core/vehicles.js';
+import { ladderSkills } from '../js/core/skill.js';
 const ladder = ladderSkills(0.58, 0.12, 8);
 console.log('ladder', ladder.map(x=>x.toFixed(2)).join(' '));
 for (const t of RACE_TRACKS) {

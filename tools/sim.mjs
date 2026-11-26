@@ -1,7 +1,7 @@
 // Headless AI-only race simulation: checks every track is drivable and prints lap times.
-import { Race } from '../public/js/core/race.js';
-import { getTrack, RACE_TRACKS } from '../public/js/core/tracks.js';
-import { VEHICLES } from '../public/js/core/vehicles.js';
+import { Race } from '../js/core/race.js';
+import { getTrack, RACE_TRACKS } from '../js/core/tracks.js';
+import { VEHICLES } from '../js/core/vehicles.js';
 
 const only = process.argv[2];
 const skills = [0.15, 0.5, 0.85, 1.0];
