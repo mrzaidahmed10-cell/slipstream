@@ -1,0 +1,42 @@
+<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:#1a2030;overflow:hidden}canvas{display:block}</style>
+<script type="importmap">{"imports":{"three":"/vendor/three.module.js"}}</script></head><body>
+<script type="module">
+import * as THREE from 'three';
+import { createVehicle, animateVehicle } from '/js/render/vehicles.js';
+import { VEHICLES, PAINTS } from '/js/core/vehicles.js';
+const q = new URLSearchParams(location.search);
+const W = innerWidth, H = innerHeight;
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setSize(W, H); renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x232b3d);
+const hemi = new THREE.HemisphereLight(0xcfe3ff, 0x40362c, 1.1); scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xfff0d8, 3.2); sun.position.set(6, 10, 5); sun.castShadow = true; sun.shadow.mapSize.set(2048,2048);
+Object.assign(sun.shadow.camera, { left:-8, right:8, top:8, bottom:-8, near:1, far:30 }); scene.add(sun);
+// env map from a simple gradient scene
+const pm = new THREE.PMREMGenerator(renderer);
+const envScene = new THREE.Scene();
+const skyGeo = new THREE.SphereGeometry(50, 32, 16);
+const skyMat = new THREE.ShaderMaterial({ side: THREE.BackSide, uniforms:{}, vertexShader:'varying vec3 p;void main(){p=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}', fragmentShader:'varying vec3 p;void main(){float h=normalize(p).y;vec3 c=mix(vec3(.55,.5,.45),vec3(.35,.6,1.),smoothstep(-.1,.7,h));c+=vec3(1.,.9,.7)*pow(max(0.,dot(normalize(p),normalize(vec3(.5,.7,.4)))),24.)*4.;gl_FragColor=vec4(c,1.);}' });
+envScene.add(new THREE.Mesh(skyGeo, skyMat));
+scene.environment = pm.fromScene(envScene, 0.02).texture;
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshStandardMaterial({ color: 0x3a4152, roughness: 0.9 })); floor.rotation.x = -Math.PI/2; floor.receiveShadow = true; scene.add(floor);
+const cam = new THREE.PerspectiveCamera(32, W/H, 0.1, 200);
+const ids = (q.get('v') || VEHICLES.map(v=>v.id).join(',')).split(',');
+const paint = PAINTS[+(q.get('p')||0)];
+const stripe = q.get('s') || 'none';
+const grp = [];
+ids.forEach((id, i) => {
+  const v = createVehicle(id, { color: PAINTS[(i + +(q.get('p')||0)) % PAINTS.length].color, accent: PAINTS[(i + +(q.get('p')||0)) % PAINTS.length].accent, stripe, number: i + 1 });
+  v.root.position.set(ids.length === 1 ? 0 : (i % 3 - 1) * 6, 0, ids.length === 1 ? 0 : (i < 3 ? 0 : -7));
+  v.root.rotation.y = +(q.get('r') ?? 0.7);
+  scene.add(v.root); grp.push(v);
+  animateVehicle(v, { speed: 0, steer: 0, dt: 0.016, boost: q.get('b') ? 1 : 0 });
+});
+const view = q.get('view') || 'all';
+if (view === 'all') { cam.position.set(14, 11, 16); cam.lookAt(0, 0.6, -3.2); cam.fov = 40; cam.updateProjectionMatrix(); }
+else { const sx = 0; cam.position.set(+(q.get('cx')||5), +(q.get('cy')||2.6), +(q.get('cz')||5.5)); cam.lookAt(0, 0.8, 0); }
+renderer.render(scene, cam);
+window.__ready = true;
+</script></body></html>

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0a0f1f">
+<title>Slipstream — Kart Racing</title>
+<meta name="description" content="Slipstream: a fast, drift-heavy kart racer with adaptive AI rivals, six tracks and a garage full of karts and small cars.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='12' fill='%230a0f1f'/%3E%3Cpath d='M6 31c8-2 13-8 18-15 2-3 6-4 10-4l8 2c-5 1-9 4-12 8-6 8-12 12-24 12z' fill='%2334e0ff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/css/style.css">
+<script type="importmap">{"imports":{"three":"/vendor/three.module.js"}}</script>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="hud" class="hud"></div>
+<div id="coach" class="coach" hidden></div>
+<div id="toast" class="toast"></div>
+<div id="ui" class="ui"></div>
+<div id="touch" class="touch" hidden>
+  <div class="tc-steer" data-tc-zone>
+    <button id="tc-left" data-tc aria-label="Steer left"><svg viewBox="0 0 48 48"><path d="M30 8 14 24l16 16" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <button id="tc-right" data-tc aria-label="Steer right"><svg viewBox="0 0 48 48"><path d="M18 8l16 16-16 16" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+  </div>
+  <div class="tc-act">
+    <button id="tc-item" data-tc>ITEM</button>
+    <button id="tc-brake" data-tc>BRAKE</button>
+    <button id="tc-drift" data-tc class="big">DRIFT</button>
+  </div>
+  <button id="tc-pause" class="tc-pause" aria-label="Pause"><svg viewBox="0 0 48 48"><path d="M15 8v32M33 8v32" stroke="currentColor" stroke-width="7" stroke-linecap="round"/></svg></button>
+</div>
+<div id="boot" class="boot"><div class="boot-in"><div class="boot-logo"></div><div class="boot-bar"><i></i></div></div></div>
+<noscript><p style="color:#fff;padding:2rem">Slipstream needs JavaScript and WebGL.</p></noscript>
+<script type="module" src="/js/main.js"></script>
+</body>
+</html>
